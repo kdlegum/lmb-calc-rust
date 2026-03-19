@@ -1,4 +1,4 @@
-use std::{fmt, str::FromStr};   
+use std::{fmt};   
 
 #[derive(Debug)]
 enum Element {
@@ -9,7 +9,7 @@ enum Element {
 #[derive(Debug)]
 struct Application { on: Box<Element>, from: Box<Element> }
 #[derive(Debug)]
-struct Function { bound_var: String, body: String }
+struct Function { bound_var: String, body: Box<Element> }
 
 impl fmt::Display for Element {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -34,8 +34,59 @@ impl FromStr for Element {
     }
 */
 
-fn reduce_single_lambda_function(s: &str) -> Result<Element, String> {
-    todo!("Implement")
+fn reduce_single_lambda_function(app: Application) -> Result<Element, String> {
+    // This function currently only considers the simple case (λx.{a or x} b) where a and b are simply variables
+    let Application { on: func, from: variable} = app;
+    let Element::Function(Function {bound_var, body: b}) = *func else {
+        return Err("Not a function".to_string());
+    };
+
+
+    let Element::FreeVariable(var_unpacked) = *variable else {
+        return Err("Not a variable".to_string());
+    };
+
+   let type_b = match *b {
+    Element::Application(_) => "app",
+    Element::FreeVariable(_) => "var",
+    Element::Function(_) => "func"
+   };
+
+   if type_b == "var" {
+
+        let Element::FreeVariable(b_unpacked) = *b else {panic!()};
+
+        if bound_var == b_unpacked {
+            return Ok(var(&var_unpacked));
+        }
+        else {
+            return Ok(var(&b_unpacked));
+        }
+   } else if type_b == "func" {
+        let Element::Function(mut b_unpacked) = *b else {panic!()};
+        let body_of_body = b_unpacked.body;
+        let new_body_of_body = body_of_body.to_string().replace(&bound_var, &var_unpacked);
+        b_unpacked.body = Box::new(parse_single_element(&new_body_of_body).unwrap());
+        return Ok(Element::Function(b_unpacked));
+   } else if type_b == "app" {
+        let Element::Application(b_unpacked) = *b else {panic!()};
+        let Application { on, from } = b_unpacked;
+        let new_on_string = replace_excluding_bound_variables(&on.to_string(), var_unpacked.chars().nth(0).unwrap(), bound_var.chars().nth(0).unwrap());
+        let new_on = Box::new(parse_single_element(&new_on_string).unwrap());
+        let new_from_string = replace_excluding_bound_variables(&from.to_string(), var_unpacked.chars().nth(0).unwrap(), bound_var.chars().nth(0).unwrap());
+        let new_from = Box::new(parse_single_element(&new_from_string).unwrap());
+        return Ok(Element::Application(Application { on:new_on, from:new_from }));
+   };
+   Err("unhandled".to_string())
+}
+
+fn replace_excluding_bound_variables(s: &str, free_var: char, bound_var: char) -> String {
+    // This only works providing the variables are single characters.
+    let chars: Vec<char> = s.chars().collect();
+    let replaced: String = chars.iter().enumerate().map(|(i, &c)| {
+        if c == bound_var && (i == 0 || chars[i-1] != 'λ') {free_var} else {c}
+    }).collect();
+    replaced
 }
 
 fn parse_single_element(s: &str) -> Result<Element, String> {
@@ -82,12 +133,12 @@ fn parse_single_element(s: &str) -> Result<Element, String> {
             // Not sure if I need to handle the case λx.(y x)
             let result = parse_single_element(&s[point_index+1..]);
             match result {
-                Ok(elem) => return Ok(func(&s.chars().nth(1).unwrap().to_string(), &elem.to_string())),
-                Err(e) => return Err("Body of function not single".to_string())
+                Ok(elem) => return Ok(func(&s.chars().nth(1).unwrap().to_string(), elem)),
+                Err(_e) => return Err("Body of function not single".to_string())
             }
         }
         else {
-            return Ok(func(&s[2..3], &s[4..5]));
+            return Ok(func(&s[2..3], var(&s[4..5])));
         };
     };
 
@@ -124,12 +175,12 @@ fn var(s: &str) -> Element {
     Element::FreeVariable(s.to_string())
 }
 
-fn func(s1: &str, s2: &str) -> Element {
-    Element::Function(Function { bound_var: s1.to_string(), body: s2.to_string() })
+fn func(s1: &str, elem: Element) -> Element {
+    Element::Function(Function { bound_var: s1.to_string(), body: Box::new(elem) })
 }
 
 fn identity() -> Element {
-    func("x", "x")
+    func("x", var("x"))
 }
 
 fn apply(elem1: Element, elem2: Element) -> Element {
@@ -148,6 +199,12 @@ fn beta_reduce(func: Function, elem: Element) -> Element {
 fn main() {
     let mut test = identity();
     test = apply(test, var("y"));
+    println!("{}", test);
+    let Element::Application(app) = test else {panic!()};
+    test = match reduce_single_lambda_function(app) {
+        Ok(a) => a,
+        Err(e) => panic!()
+    };
     println!("{}", test)
 }
 
@@ -157,6 +214,7 @@ mod tests {
 
     // --- Ok cases ---
 
+    // Tests for parse single element
     #[test]
     fn single_variable() {
         let result = parse_single_element("x").unwrap();
@@ -193,6 +251,40 @@ mod tests {
         assert_eq!(result.to_string(), "λx.(y z)");
     }
 
+    // tests for reduce single lambda function
+
+    #[test]
+    fn apply_identity_to_var() {
+        let test = apply(identity(), var("a"));
+        let Element::Application(app) = test else {panic!()};
+        let result = reduce_single_lambda_function(app).unwrap();
+        assert_eq!(result.to_string(), "a");
+    }
+
+    #[test]
+    fn apply_not_identity_to_var() {
+        let test = parse_single_element("(λx.y a)").unwrap();
+        let Element::Application(app) = test else {panic!()};
+        let result = reduce_single_lambda_function(app).unwrap();
+        assert_eq!(result.to_string(), "y");
+    }
+
+    #[test]
+    fn apply_to_application() {
+        let test_func = parse_single_element("λx.(b x)").unwrap();
+        let Element::Application(test) = apply(test_func, var("a")) else {panic!()};
+        let result = reduce_single_lambda_function(test).unwrap();
+        assert_eq!(result.to_string(), "(b a)");
+    }
+
+    #[test]
+    fn apply_to_body_function() {
+        let test_body_func = parse_single_element("λy.x").unwrap();
+        let test_func = func("x", test_body_func);
+        let Element::Application(test) = apply(test_func, var("a")) else {panic!()};
+        let result = reduce_single_lambda_function(test).unwrap();
+        assert_eq!(result.to_string(), "λy.a");
+    }
     // --- Err cases ---
 
     #[test]
