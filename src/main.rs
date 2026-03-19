@@ -1,14 +1,15 @@
+use std::iter::Enumerate;
 use std::{fmt};   
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum Element {
     FreeVariable(String),
     Function(Function),
     Application (Application)
 }
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 struct Application { on: Box<Element>, from: Box<Element> }
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 struct Function { bound_var: String, body: Box<Element> }
 
 impl fmt::Display for Element {
@@ -21,18 +22,91 @@ impl fmt::Display for Element {
     }
 }
 
-/* 
-Finish this once I have a function that checks if it is done, and a function that simplifies a function or an application by one step.
 use std::str::FromStr;
 impl FromStr for Element {
-    type Err;
+    type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut x = s.to_string();
-        // Find free variables
-        let split_expression = x.split_whitespace();
+
+        println!("{}", s);
+
+        if s.matches("(").count() != s.matches(")").count() {
+            return Err("Unclosed/unopened application".to_string());
+        };
+
+        let _attempt_parse = match parse_single_element(s) {
+            Ok(a) => return Ok(a),
+            Err(e) => e
+        };
+
+        let first_char: char = match s.to_string().chars().nth(0) {
+            Some(a) => a,
+            None => return Err("Blank".to_string())
+        };
+
+        if first_char == 'λ' {
+            let bound_var: char = match s.to_string().chars().nth(1) {
+                Some(a) => a,
+                None => return Err("No variable after the lambda".to_string())
+            };
+            let _third_char = match s.to_string().chars().nth(2) {
+                Some('.') => "ok",
+                Some(a) => return Err("Only one letter variables allowed".to_string()),
+                None => return Err("No body in a function".to_string())
+            };
+            let result: Element = match Self::from_str(&s[4..]) {
+                Ok(a) => a,
+                Err(e) => return Err(format!("{}", e))
+            };
+            return Ok(func(&bound_var.to_string(), result));
+        } else if first_char == '(' {
+            if s.to_string().chars().last().unwrap() != ')' {
+                return Err("Invalid expression".to_string());
+            };
+            
+            let mut bracket_index = 0;
+            let mut found_candidate = false;
+            let mut candidate_index: usize = 0;
+            for (i, c) in s[1..s.len()-1].chars().enumerate() {
+                if bracket_index < 0 {return Err("Invalid brackets".to_string())};
+                if c == '(' {bracket_index += 1}
+                else if c == ')' {bracket_index -= 1} 
+                else if c == ' ' && bracket_index == 0 {
+                    if found_candidate {return Err("Three or more arguments in application".to_string())}
+                    else {
+                        found_candidate = true;
+                        candidate_index = i;
+                    }
+                }
+            }
+
+            if !found_candidate {return Err("only one argument in application".to_string())};
+            
+            let chars: Vec<char> = s[1..s.len()-1].chars().collect();
+            let str_elem1: String = chars.get(..candidate_index).unwrap_or_default().iter().collect();
+            let str_elem2: String = chars.get(candidate_index+1..chars.len()).unwrap_or_default().iter().collect();
+
+            if str_elem1 == "" || str_elem2 == "" {return Err("Application needs two valid arguments".to_string())};
+
+            let elem1: Element = match Self::from_str(&str_elem1) {
+                Ok(a) => a,
+                Err(e) => return Err(format!("{}", e)),
+            };
+
+            let elem2 = match Self::from_str(&str_elem2) {
+                Ok(a) => a,
+                Err(e) => return Err(format!("{}", e)),
+            };
+
+            Ok(apply(elem1, elem2))
+            
+        } else {
+            if s.chars().count() != 1 { return Err("Only single character variables are allowed".to_string()) }
+            else {Ok(var(s))}
         }
+
+        }
+
     }
-*/
 
 fn reduce_single_lambda_function(app: Application) -> Result<Element, String> {
     // This function currently only considers the simple case (λx.{a or x} b) where a and b are simply variables
@@ -122,6 +196,7 @@ fn parse_single_element(s: &str) -> Result<Element, String> {
 
 
     let first_char = s.chars().nth(0).unwrap();
+
     if first_char == 'λ' {
         let point_index = match s.find(".") {
             Some(v) => v,
@@ -130,7 +205,6 @@ fn parse_single_element(s: &str) -> Result<Element, String> {
         if point_index != 3 {
             return Err("Function's bound variable is longer than 1".to_string());
         } else if s[point_index+1..].len() > 1 {
-            // Not sure if I need to handle the case λx.(y x)
             let result = parse_single_element(&s[point_index+1..]);
             match result {
                 Ok(elem) => return Ok(func(&s.chars().nth(1).unwrap().to_string(), elem)),
@@ -285,6 +359,31 @@ mod tests {
         let result = reduce_single_lambda_function(test).unwrap();
         assert_eq!(result.to_string(), "λy.a");
     }
+
+    // Tests for fromStr for element
+    #[test]
+    fn nested_functions() {
+        let inner_func = parse_single_element("λy.x").unwrap();
+        let expected = func("x", inner_func);
+        assert_eq!(Element::from_str("λx.λy.x").unwrap(), expected);
+    }
+
+    #[test]
+    fn nested_applications() {
+        let inner_app = parse_single_element("(a b)").unwrap();
+        let expected = apply(var("c"), inner_app);
+        assert_eq!(Element::from_str("(c (a b))").unwrap(), expected);
+    }
+
+    #[test]
+    fn complex_lambda_function() {
+        let inner_func = parse_single_element("λy.x").unwrap();
+        let master_func = func("x", inner_func);
+        let inner_app = apply(master_func, var("a"));
+        let expected = apply(inner_app, var("b"));
+        assert_eq!(Element::from_str("((λx.λy.x a) b)").unwrap(), expected);
+    }
+
     // --- Err cases ---
 
     #[test]
