@@ -1,4 +1,3 @@
-use std::iter::Enumerate;
 use std::{fmt};   
 
 #[derive(Debug, PartialEq)]
@@ -50,7 +49,7 @@ impl FromStr for Element {
             };
             let _third_char = match s.to_string().chars().nth(2) {
                 Some('.') => "ok",
-                Some(a) => return Err("Only one letter variables allowed".to_string()),
+                Some(_a) => return Err("Only one letter variables allowed".to_string()),
                 None => return Err("No body in a function".to_string())
             };
             let result: Element = match Self::from_str(&s[4..]) {
@@ -109,7 +108,6 @@ impl FromStr for Element {
     }
 
 fn reduce_single_lambda_function(app: Application) -> Result<Element, String> {
-    // This function currently only considers the simple case (λx.{a or x} b) where a and b are simply variables
     let Application { on: func, from: variable} = app;
     let Element::Function(Function {bound_var, body: b}) = *func else {
         return Err("Not a function".to_string());
@@ -139,9 +137,10 @@ fn reduce_single_lambda_function(app: Application) -> Result<Element, String> {
    } else if type_b == "func" {
         let Element::Function(mut b_unpacked) = *b else {panic!()};
         let body_of_body = b_unpacked.body;
-        let new_body_of_body = body_of_body.to_string().replace(&bound_var, &var_unpacked);
+        let new_body_of_body = replace_excluding_bound_variables(&body_of_body.to_string(), var_unpacked.chars().nth(0).unwrap(), bound_var.chars().nth(0).unwrap());
         b_unpacked.body = Box::new(parse_single_element(&new_body_of_body).unwrap());
         return Ok(Element::Function(b_unpacked));
+
    } else if type_b == "app" {
         let Element::Application(b_unpacked) = *b else {panic!()};
         let Application { on, from } = b_unpacked;
@@ -164,7 +163,8 @@ fn replace_excluding_bound_variables(s: &str, free_var: char, bound_var: char) -
 }
 
 fn parse_single_element(s: &str) -> Result<Element, String> {
-/*
+
+    /*
     Conditions for an expression to be a single element in terms of parsing a string.
 
     If we have an application (on from), on and from must be a single element. We can then return apply(on, from)
@@ -172,8 +172,7 @@ fn parse_single_element(s: &str) -> Result<Element, String> {
     If the first character is not ( nor λ, and it's just a single character ie "x" -> var("x")
 
     Something like xy is actually (x y) but for now we render this illegal and return Err.
-
-     */
+    */
     
     if s.len() == 0 {
         return Err("Empty String".to_string());
@@ -277,7 +276,7 @@ fn main() {
     let Element::Application(app) = test else {panic!()};
     test = match reduce_single_lambda_function(app) {
         Ok(a) => a,
-        Err(e) => panic!()
+        Err(_e) => panic!()
     };
     println!("{}", test)
 }
@@ -360,6 +359,13 @@ mod tests {
         assert_eq!(result.to_string(), "λy.a");
     }
 
+    #[test]
+    fn complex_application() {
+        let Element::Application(test) = Element::from_str("(λx.λy.(x y) a)").unwrap() else {panic!()};
+        let result = reduce_single_lambda_function(test).unwrap();
+        assert_eq!(result.to_string(), "λy.(a y)");
+    }
+
     // Tests for fromStr for element
     #[test]
     fn nested_functions() {
@@ -419,5 +425,15 @@ mod tests {
     #[test]
     fn application_no_space() {
         assert!(parse_single_element("(xy)").is_err());
+    }
+
+    #[test]
+    fn space_before_application() {
+        assert!(Element::from_str(" (a b)").is_err());
+    }
+
+    #[test]
+    fn three_argument_application() {
+        assert!(Element::from_str("(a b c)").is_err());
     }
 }
