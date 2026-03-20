@@ -26,7 +26,7 @@ impl FromStr for Element {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
 
-        println!("{}", s);
+        //println!("{}", s);
 
         if s.matches("(").count() != s.matches(")").count() {
             return Err("Unclosed/unopened application".to_string());
@@ -254,24 +254,90 @@ fn identity() -> Element {
 fn apply(elem1: Element, elem2: Element) -> Element {
     Element::Application (Application { on: Box::new(elem1), from: Box::new(elem2) })
 }
+
+
+
+fn reduce_expression(elem: Element) -> Result<(Element, bool), String> {
+
+    match elem {
+        Element::Application(app) => {
+            if get_element_type(&app.on) == "func" {
+            return Ok((beta_reduce(app).unwrap(), true));
+            } else {
+                let Application { on, from } = app;
+                match reduce_expression(*on) {
+                    Ok((a, true)) => return Ok((Element::Application(Application { on:Box::new(a), from }), true)),
+                    Ok((elem1, false)) => {
+                         match reduce_expression(*from) {
+                            Ok((a, b)) => return Ok(((apply(elem1, a)), b)),
+                            Err(e) => return Err(e),
+                         }
+                    },
+                    Err(e) => return Err(e),
+                };
+             }
+        },
+        Element::Function(func) => {
+            match reduce_expression(*func.body) {
+                Ok((reduced_body, true)) => return Ok((Element::Function(Function { body: Box::new(reduced_body), ..func }), true)),
+                Ok((body, false)) => return Ok((Element::Function(Function { body:Box::new(body), ..func }), false)),
+                Err(e) => return Err(e),
+            }
+        },
+        Element::FreeVariable(_) => return Ok((elem, false)),
+    }
+    
+    
+    if get_element_type(&elem) != "app" {
+        return Ok((elem, false));
+    }
+
+    let Element::Application(app) = elem else { panic!() };
+
+    
+}
+
 fn main() {
-    let mut test = identity();
-    test = apply(test, var("y"));
-    println!("{}", test);
-    let Element::Application(app) = test else {panic!()};
-    test = match beta_reduce(app) {
+    
+    let input = input("Enter a lambda function: ");
+    let mut elem = match Element::from_str(&input) {
         Ok(a) => a,
-        Err(_e) => panic!()
+        Err(e) => panic!("{}", e),
     };
-    println!("{}", test)
+    
+    loop {
+        match reduce_expression(elem) {
+            Ok((a, true)) => {
+                elem = a;
+                println!("{}", elem);
+            },
+            Ok((a, false)) => {
+                elem = a;
+                break;
+            },
+            Err(e) => panic!("{}", e),
+        }
+    }
+    
+    println!("Done. Result: {}", elem.to_string());
+    return;
+}
+
+use std::io::{self, Write};
+fn input(prompt: &str) -> String {
+    print!("{}", prompt);
+    io::stdout().flush().unwrap();
+    let mut buf = String::new();
+    io::stdin().read_line(&mut buf).unwrap();
+    buf.trim_end().to_string()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    
     // --- Ok cases ---
-
+    
     // Tests for parse single element
     #[test]
     fn single_variable() {
