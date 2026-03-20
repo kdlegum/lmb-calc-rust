@@ -107,6 +107,14 @@ impl FromStr for Element {
 
     }
 
+fn get_element_type(elem: &Element) -> &str {
+    match elem {
+        Element::Application(_) => "app",
+        Element::FreeVariable(_) => "var",
+        Element::Function(_) => "func",
+    }
+}
+
 fn reduce_single_lambda_function(app: Application) -> Result<Element, String> {
     let Application { on: func, from: variable} = app;
     let Element::Function(Function {bound_var, body: b}) = *func else {
