@@ -115,59 +115,46 @@ fn get_element_type(elem: &Element) -> &str {
     }
 }
 
-fn reduce_single_lambda_function(app: Application) -> Result<Element, String> {
-    let Application { on: func, from: variable} = app;
-    let Element::Function(Function {bound_var, body: b}) = *func else {
+fn beta_reduce(app: Application) -> Result<Element, String> {
+    let Application { on, from } = app;
+
+    if get_element_type(&on) != "func" {
         return Err("Not a function".to_string());
     };
 
+    let Element::Function(Function { bound_var, body }) = *on else {panic!()};
 
-    let Element::FreeVariable(var_unpacked) = *variable else {
-        return Err("Not a variable".to_string());
+    let body_as_str = body.to_string();
+    let from_as_str = from.to_string();
+    let new_body = replace_excluding_bound_variables(&body_as_str, &from_as_str, &bound_var);
+    let new_body_elem = match Element::from_str(&new_body) {
+        Ok(a) => a,
+        Err(_) => return Err("Could not parse body".to_string()),
     };
+    return Ok(new_body_elem);
 
-   let type_b = match *b {
-    Element::Application(_) => "app",
-    Element::FreeVariable(_) => "var",
-    Element::Function(_) => "func"
-   };
-
-   if type_b == "var" {
-
-        let Element::FreeVariable(b_unpacked) = *b else {panic!()};
-
-        if bound_var == b_unpacked {
-            return Ok(var(&var_unpacked));
-        }
-        else {
-            return Ok(var(&b_unpacked));
-        }
-   } else if type_b == "func" {
-        let Element::Function(mut b_unpacked) = *b else {panic!()};
-        let body_of_body = b_unpacked.body;
-        let new_body_of_body = replace_excluding_bound_variables(&body_of_body.to_string(), var_unpacked.chars().nth(0).unwrap(), bound_var.chars().nth(0).unwrap());
-        b_unpacked.body = Box::new(parse_single_element(&new_body_of_body).unwrap());
-        return Ok(Element::Function(b_unpacked));
-
-   } else if type_b == "app" {
-        let Element::Application(b_unpacked) = *b else {panic!()};
-        let Application { on, from } = b_unpacked;
-        let new_on_string = replace_excluding_bound_variables(&on.to_string(), var_unpacked.chars().nth(0).unwrap(), bound_var.chars().nth(0).unwrap());
-        let new_on = Box::new(parse_single_element(&new_on_string).unwrap());
-        let new_from_string = replace_excluding_bound_variables(&from.to_string(), var_unpacked.chars().nth(0).unwrap(), bound_var.chars().nth(0).unwrap());
-        let new_from = Box::new(parse_single_element(&new_from_string).unwrap());
-        return Ok(Element::Application(Application { on:new_on, from:new_from }));
-   };
-   Err("unhandled".to_string())
 }
 
-fn replace_excluding_bound_variables(s: &str, free_var: char, bound_var: char) -> String {
-    // This only works providing the variables are single characters.
-    let chars: Vec<char> = s.chars().collect();
-    let replaced: String = chars.iter().enumerate().map(|(i, &c)| {
-        if c == bound_var && (i == 0 || chars[i-1] != 'λ') {free_var} else {c}
-    }).collect();
-    replaced
+fn replace_excluding_bound_variables(s: &str, to: &str, bound_var: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut remaining = s;
+
+    while let Some(idx) = remaining.find(bound_var) {
+        result.push_str(&remaining[..idx]);
+
+        let is_bound = result.ends_with('λ');
+
+        if is_bound {
+            result.push_str(bound_var);
+        } else {
+            result.push_str(to);
+        }
+
+        remaining = &remaining[idx + bound_var.len()..];
+    }
+
+    result.push_str(remaining);
+    result
 }
 
 fn parse_single_element(s: &str) -> Result<Element, String> {
@@ -267,22 +254,12 @@ fn identity() -> Element {
 fn apply(elem1: Element, elem2: Element) -> Element {
     Element::Application (Application { on: Box::new(elem1), from: Box::new(elem2) })
 }
-
-/*
-TODO
-i dont think i can implement this yet without being able to make the newly produced string into a element.
-fn beta_reduce(func: Function, elem: Element) -> Element {
-    let Function {bound_var: bv, body: b};
-
-}
-*/
-
 fn main() {
     let mut test = identity();
     test = apply(test, var("y"));
     println!("{}", test);
     let Element::Application(app) = test else {panic!()};
-    test = match reduce_single_lambda_function(app) {
+    test = match beta_reduce(app) {
         Ok(a) => a,
         Err(_e) => panic!()
     };
@@ -298,37 +275,37 @@ mod tests {
     // Tests for parse single element
     #[test]
     fn single_variable() {
-        let result = parse_single_element("x").unwrap();
+        let result = Element::from_str("x").unwrap();
         assert_eq!(result.to_string(), "x");
     }
 
     #[test]
     fn simple_function() {
-        let result = parse_single_element("λx.y").unwrap();
+        let result = Element::from_str("λx.y").unwrap();
         assert_eq!(result.to_string(), "λx.y");
     }
 
     #[test]
     fn identity_function() {
-        let result = parse_single_element("λx.x").unwrap();
+        let result = Element::from_str("λx.x").unwrap();
         assert_eq!(result.to_string(), "λx.x");
     }
 
     #[test]
     fn simple_application() {
-        let result = parse_single_element("(x y)").unwrap();
+        let result = Element::from_str("(x y)").unwrap();
         assert_eq!(result.to_string(), "(x y)");
     }
 
     #[test]
     fn application_with_function() {
-        let result = parse_single_element("(λx.y z)").unwrap();
+        let result = Element::from_str("(λx.y z)").unwrap();
         assert_eq!(result.to_string(), "(λx.y z)");
     }
 
     #[test]
     fn function_with_application_body() {
-        let result = parse_single_element("λx.(y z)").unwrap();
+        let result = Element::from_str("λx.(y z)").unwrap();
         assert_eq!(result.to_string(), "λx.(y z)");
     }
 
@@ -338,60 +315,60 @@ mod tests {
     fn apply_identity_to_var() {
         let test = apply(identity(), var("a"));
         let Element::Application(app) = test else {panic!()};
-        let result = reduce_single_lambda_function(app).unwrap();
+        let result = beta_reduce(app).unwrap();
         assert_eq!(result.to_string(), "a");
     }
 
     #[test]
     fn apply_not_identity_to_var() {
-        let test = parse_single_element("(λx.y a)").unwrap();
+        let test = Element::from_str("(λx.y a)").unwrap();
         let Element::Application(app) = test else {panic!()};
-        let result = reduce_single_lambda_function(app).unwrap();
+        let result = beta_reduce(app).unwrap();
         assert_eq!(result.to_string(), "y");
     }
 
     #[test]
     fn apply_to_application() {
-        let test_func = parse_single_element("λx.(b x)").unwrap();
+        let test_func = Element::from_str("λx.(b x)").unwrap();
         let Element::Application(test) = apply(test_func, var("a")) else {panic!()};
-        let result = reduce_single_lambda_function(test).unwrap();
+        let result = beta_reduce(test).unwrap();
         assert_eq!(result.to_string(), "(b a)");
     }
 
     #[test]
     fn apply_to_body_function() {
-        let test_body_func = parse_single_element("λy.x").unwrap();
+        let test_body_func = Element::from_str("λy.x").unwrap();
         let test_func = func("x", test_body_func);
         let Element::Application(test) = apply(test_func, var("a")) else {panic!()};
-        let result = reduce_single_lambda_function(test).unwrap();
+        let result = beta_reduce(test).unwrap();
         assert_eq!(result.to_string(), "λy.a");
     }
 
     #[test]
     fn complex_application() {
         let Element::Application(test) = Element::from_str("(λx.λy.(x y) a)").unwrap() else {panic!()};
-        let result = reduce_single_lambda_function(test).unwrap();
+        let result = beta_reduce(test).unwrap();
         assert_eq!(result.to_string(), "λy.(a y)");
     }
 
     // Tests for fromStr for element
     #[test]
     fn nested_functions() {
-        let inner_func = parse_single_element("λy.x").unwrap();
+        let inner_func = Element::from_str("λy.x").unwrap();
         let expected = func("x", inner_func);
         assert_eq!(Element::from_str("λx.λy.x").unwrap(), expected);
     }
 
     #[test]
     fn nested_applications() {
-        let inner_app = parse_single_element("(a b)").unwrap();
+        let inner_app = Element::from_str("(a b)").unwrap();
         let expected = apply(var("c"), inner_app);
         assert_eq!(Element::from_str("(c (a b))").unwrap(), expected);
     }
 
     #[test]
     fn complex_lambda_function() {
-        let inner_func = parse_single_element("λy.x").unwrap();
+        let inner_func = Element::from_str("λy.x").unwrap();
         let master_func = func("x", inner_func);
         let inner_app = apply(master_func, var("a"));
         let expected = apply(inner_app, var("b"));
@@ -402,37 +379,37 @@ mod tests {
 
     #[test]
     fn empty_string() {
-        assert!(parse_single_element("").is_err());
+        assert!(Element::from_str("").is_err());
     }
 
     #[test]
     fn multiple_bare_chars() {
-        assert!(parse_single_element("xy").is_err());
+        assert!(Element::from_str("xy").is_err());
     }
 
     #[test]
     fn function_no_body() {
-        assert!(parse_single_element("λx").is_err());
+        assert!(Element::from_str("λx").is_err());
     }
 
     #[test]
     fn function_long_bound_var() {
-        assert!(parse_single_element("λxy.z").is_err());
+        assert!(Element::from_str("λxy.z").is_err());
     }
 
     #[test]
     fn application_missing_close_paren() {
-        assert!(parse_single_element("(x y").is_err());
+        assert!(Element::from_str("(x y").is_err());
     }
 
     #[test]
     fn application_too_many_spaces() {
-        assert!(parse_single_element("(x y z)").is_err());
+        assert!(Element::from_str("(x y z)").is_err());
     }
 
     #[test]
     fn application_no_space() {
-        assert!(parse_single_element("(xy)").is_err());
+        assert!(Element::from_str("(xy)").is_err());
     }
 
     #[test]
