@@ -272,6 +272,7 @@ fn func(s1: &str, elem: Element) -> Element {
     Element::Function(Function { bound_var: s1.to_string(), body: Box::new(elem) })
 }
 
+#[allow(dead_code)]
 fn identity() -> Element {
     func("x", var("x"))
 }
@@ -470,6 +471,20 @@ mod tests {
         let steps: Vec<Element> = ReductionSteps::new(var("x")).collect();
         assert_eq!(steps.len(), 1, "#steps incorrect");
         assert_eq!(steps.last().unwrap().to_string(), "x", "result incorrect");
+    }
+
+    #[test]
+    fn apply_succ_to_one() {
+        let succ_to_one = Element::from_str("(λn.λf.λx.(f ((n f) x)) λf.λx.(f x))").unwrap();
+        let result = ReductionSteps::new(succ_to_one).last().unwrap();
+        assert_eq!(result.to_string(), "λf.λx.(f (f x))");
+    }
+
+    #[test]
+    fn test_normal_order() {
+        let test = Element::from_str("(λx.λy.y (λx.(x x) λx.(x x)))").unwrap();
+        let result = ReductionSteps::new(test).last().unwrap();
+        assert_eq!(result.to_string(), "λy.y");
     }
 
     // --- Err cases ---
