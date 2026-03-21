@@ -1,14 +1,14 @@
 use std::{fmt};   
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 enum Element {
     FreeVariable(String),
     Function(Function),
     Application (Application)
 }
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 struct Application { on: Box<Element>, from: Box<Element> }
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 struct Function { bound_var: String, body: Box<Element> }
 
 impl fmt::Display for Element {
@@ -106,6 +106,31 @@ impl FromStr for Element {
         }
 
     }
+
+struct ReductionSteps {
+    current: Option<Element>,
+}
+
+impl Iterator for ReductionSteps {
+    type Item = Element;
+    fn next(&mut self) -> Option<Self::Item> {
+
+        let Some(elem) = self.current.take() else {return None};
+
+        match reduce_expression(elem) {
+            Ok((a, true)) => {let b = a.clone(); self.current=Some(a); return Some(b)},
+            Ok((a, false)) => {self.current=None; return Some(a)},
+            Err(e) => panic!("{}", e),
+        };
+
+    }
+}
+
+impl ReductionSteps {
+    fn new(elem: Element) -> Self {
+        ReductionSteps { current: Some(elem) }
+    }
+}
 
 fn get_element_type(elem: &Element) -> &str {
     match elem {
@@ -286,41 +311,22 @@ fn reduce_expression(elem: Element) -> Result<(Element, bool), String> {
         },
         Element::FreeVariable(_) => return Ok((elem, false)),
     }
-    
-    
-    if get_element_type(&elem) != "app" {
-        return Ok((elem, false));
-    }
-
-    let Element::Application(app) = elem else { panic!() };
 
     
 }
 
 fn main() {
-    
     let input = input("Enter a lambda function: ");
-    let mut elem = match Element::from_str(&input) {
-        Ok(a) => a,
-        Err(e) => panic!("{}", e),
-    };
-    
-    loop {
-        match reduce_expression(elem) {
-            Ok((a, true)) => {
-                elem = a;
-                println!("{}", elem);
-            },
-            Ok((a, false)) => {
-                elem = a;
-                break;
-            },
-            Err(e) => panic!("{}", e),
-        }
+    let input_element = Element::from_str(&input).unwrap();
+    let mut result = input_element.clone();
+    let test = ReductionSteps::new(input_element);
+    for elem in test {
+        println!("{}",elem.to_string());
+        result = elem;
     }
+
+    println!("Done! The result is {}", result)
     
-    println!("Done. Result: {}", elem.to_string());
-    return;
 }
 
 use std::io::{self, Write};
@@ -439,6 +445,31 @@ mod tests {
         let inner_app = apply(master_func, var("a"));
         let expected = apply(inner_app, var("b"));
         assert_eq!(Element::from_str("((λx.λy.x a) b)").unwrap(), expected);
+    }
+
+    // Tests for ReductionSteps iterator
+
+    #[test]
+    fn iterate_identity() {
+        let test_expression = apply(identity(), var("a"));
+        let steps: Vec<Element> = ReductionSteps::new(test_expression).collect();
+        assert_eq!(steps.len(), 2, "#steps incorrect");
+        assert_eq!(steps.last().unwrap().to_string(), "a", "result incorrect");
+    }
+
+    #[test]
+    fn multiple_steps_iterator() {
+        let test_expression = Element::from_str("((λx.λy.x a) b)").unwrap();
+        let steps: Vec<Element> = ReductionSteps::new(test_expression).collect();
+        assert_eq!(steps.len(), 3, "#steps incorrect");
+        assert_eq!(steps.last().unwrap().to_string(), "a", "result incorrect");
+    }
+
+    #[test]
+    fn iterator_for_reduced_elem() {
+        let steps: Vec<Element> = ReductionSteps::new(var("x")).collect();
+        assert_eq!(steps.len(), 1, "#steps incorrect");
+        assert_eq!(steps.last().unwrap().to_string(), "x", "result incorrect");
     }
 
     // --- Err cases ---
