@@ -1,6 +1,6 @@
 // let x = 5 + 3
 #[derive(Debug, PartialEq)]
-enum Token {
+pub enum Token {
     // Keywords
     Let,
     Return,
@@ -30,6 +30,12 @@ enum Token {
     LBrace,
     RBrace,
     Arrow,
+}
+
+impl Token {
+    fn is_operator(&self) -> bool {
+        matches!(self, Token::Plus | Token::Minus | Token::Multiply | Token::Divide | Token::Mod | Token::AssignEquals | Token::Equality)
+    }
 }
 
 fn match_keyword(word: &str) -> Token {
