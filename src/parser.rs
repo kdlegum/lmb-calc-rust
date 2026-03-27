@@ -28,12 +28,39 @@ impl Parser {
     fn next(&mut self) -> &Token { self.cursor += 1; &self.tokens[self.cursor-1]}
     
     fn parse_program(&mut self) -> Program {
-        todo!()   
+        let mut stmts: Program = vec![];
+        loop {
+            match self.parse_statement() {
+                Ok(Statement::EOP) => break,
+                Ok(s) => stmts.push(s),
+                Err(e) => panic!("{}", e),
+            }
+        }
+        stmts
     }
 
     fn parse_statement(&mut self) -> Result<Statement, String> {
-
-        todo!()
+        match self.peek() {
+            Token::Let => {
+                self.next();
+                let Token::Ident(s) = self.next() else {return Err("Token after let not an ident".to_string())};
+                let new_var_str = s.clone();
+                if *self.next() != Token::AssignEquals {return Err("Let used incorrectly".to_string())};
+                let expr = self.parse_expr()?;
+                if *self.next() != Token::Semicolon {return Err("Expected semicolon after let statement".to_string())};
+                return Ok(Statement::Let(new_var_str, expr));
+            }
+            Token::Return => {
+                self.next();
+                let expr = self.parse_expr()?;
+                if *self.next() != Token::Semicolon {return Err("Expected semicolon after return statement".to_string())};
+                return Ok(Statement::Return(expr));
+            }
+            Token::EOP => {
+                return Ok(Statement::EOP);
+            }
+            _ => return Err("Not a valid statement".to_string()),
+        }
     }
 
     fn parse_term(&mut self) -> Result<Expr, String> {
@@ -283,5 +310,139 @@ mod tests {
                 Box::new(Expr::Number(3))
             )
         );
+    }
+
+    // === parse_program tests ===
+
+    #[test]
+    fn program_empty() {
+        // Just EOP — should produce an empty program
+        let mut p = Parser::new(vec![Token::EOP]);
+        let prog = p.parse_program();
+        assert_eq!(prog.len(), 0);
+    }
+
+    #[test]
+    fn program_single_let() {
+        // let x = 5;
+        let mut p = Parser::new(vec![
+            Token::Let, Token::Ident("x".to_string()), Token::AssignEquals,
+            Token::Number(5), Token::Semicolon,
+            Token::EOP,
+        ]);
+        let prog = p.parse_program();
+        assert_eq!(prog.len(), 1);
+        assert_eq!(prog[0], Statement::Let("x".to_string(), Expr::Number(5)));
+    }
+
+    #[test]
+    fn program_single_return() {
+        // return 42;
+        let mut p = Parser::new(vec![
+            Token::Return, Token::Number(42), Token::Semicolon,
+            Token::EOP,
+        ]);
+        let prog = p.parse_program();
+        assert_eq!(prog.len(), 1);
+        assert_eq!(prog[0], Statement::Return(Expr::Number(42)));
+    }
+
+    #[test]
+    fn program_let_then_return() {
+        // let x = 10
+        // return x + 1
+        let mut p = Parser::new(vec![
+            Token::Let, Token::Ident("x".to_string()), Token::AssignEquals, Token::Number(10), Token::Semicolon,
+            Token::Return, Token::Ident("x".to_string()), Token::Plus, Token::Number(1), Token::Semicolon,
+            Token::EOP,
+        ]);
+        let prog = p.parse_program();
+        assert_eq!(prog.len(), 2);
+        assert_eq!(prog[0], Statement::Let("x".to_string(), Expr::Number(10)));
+        assert_eq!(
+            prog[1],
+            Statement::Return(Expr::BinaryOp(
+                Box::new(Expr::Ident("x".to_string())),
+                Op::Add,
+                Box::new(Expr::Number(1)),
+            ))
+        );
+    }
+
+    #[test]
+    fn program_multiple_lets() {
+        // let a = 1
+        // let b = 2
+        // let c = a + b
+        let mut p = Parser::new(vec![
+            Token::Let, Token::Ident("a".to_string()), Token::AssignEquals, Token::Number(1), Token::Semicolon,
+            Token::Let, Token::Ident("b".to_string()), Token::AssignEquals, Token::Number(2), Token::Semicolon,
+            Token::Let, Token::Ident("c".to_string()), Token::AssignEquals,
+                Token::Ident("a".to_string()), Token::Plus, Token::Ident("b".to_string()), Token::Semicolon,
+            Token::EOP,
+        ]);
+        let prog = p.parse_program();
+        assert_eq!(prog.len(), 3);
+        assert_eq!(prog[0], Statement::Let("a".to_string(), Expr::Number(1)));
+        assert_eq!(prog[1], Statement::Let("b".to_string(), Expr::Number(2)));
+        assert_eq!(
+            prog[2],
+            Statement::Let("c".to_string(), Expr::BinaryOp(
+                Box::new(Expr::Ident("a".to_string())),
+                Op::Add,
+                Box::new(Expr::Ident("b".to_string())),
+            ))
+        );
+    }
+
+    #[test]
+    fn program_return_complex_expr() {
+        // return (1 + 2) * 3
+        let mut p = Parser::new(vec![
+            Token::Return,
+            Token::LParen, Token::Number(1), Token::Plus, Token::Number(2), Token::RParen,
+            Token::Multiply, Token::Number(3), Token::Semicolon,
+            Token::EOP,
+        ]);
+        let prog = p.parse_program();
+        assert_eq!(prog.len(), 1);
+        assert_eq!(
+            prog[0],
+            Statement::Return(Expr::BinaryOp(
+                Box::new(Expr::BinaryOp(
+                    Box::new(Expr::Number(1)), Op::Add, Box::new(Expr::Number(2))
+                )),
+                Op::Mul,
+                Box::new(Expr::Number(3)),
+            ))
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn program_invalid_statement() {
+        // Starting with a number — not a valid statement
+        let mut p = Parser::new(vec![Token::Number(5), Token::EOP]);
+        p.parse_program();
+    }
+
+    #[test]
+    #[should_panic]
+    fn program_let_missing_ident() {
+        // let = 5  — missing identifier
+        let mut p = Parser::new(vec![
+            Token::Let, Token::AssignEquals, Token::Number(5), Token::EOP,
+        ]);
+        p.parse_program();
+    }
+
+    #[test]
+    #[should_panic]
+    fn program_let_missing_equals() {
+        // let x 5  — missing =
+        let mut p = Parser::new(vec![
+            Token::Let, Token::Ident("x".to_string()), Token::Number(5), Token::EOP,
+        ]);
+        p.parse_program();
     }
 }

@@ -16,9 +16,11 @@ pub enum Op {
     Is,
 }
 
+#[derive(Debug, PartialEq)]
 pub enum Statement {
     Let(String, Expr),
     Return(Expr),
+    EOP,
 }
 
 pub type Program = Vec<Statement>;

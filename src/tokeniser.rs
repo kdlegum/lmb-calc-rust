@@ -30,6 +30,8 @@ pub enum Token {
     LBrace,
     RBrace,
     Arrow,
+
+    EOP,
 }
 
 impl Token {
@@ -99,6 +101,7 @@ fn tokenise(code: &str) -> Vec<Token> {
             }
         }
     }
+    tokens.push(Token::EOP);
     tokens
 }
 
@@ -111,7 +114,7 @@ mod tests {
     fn tokenise_assignment() {
         let test = "let x = 5;";
         let result = tokenise(test);
-        assert_eq!(result, vec![Token::Let, Token::Ident("x".to_string()), Token::AssignEquals, Token::Number(5), Token::Semicolon])
+        assert_eq!(result, vec![Token::Let, Token::Ident("x".to_string()), Token::AssignEquals, Token::Number(5), Token::Semicolon, Token::EOP])
     }
 
     #[test]
@@ -122,6 +125,6 @@ return x + y is 11;";
         let result = tokenise(test);
         assert_eq!(result, vec![Token::Let, Token::Ident("x".to_string()), Token::AssignEquals, Token::Number(5), Token::Semicolon,
         Token::Let, Token::Ident("y".to_string()), Token::AssignEquals, Token::Number(6), Token::Semicolon,
-        Token::Return, Token::Ident("x".to_string()), Token::Plus, Token::Ident("y".to_string()), Token::Is, Token::Number(11), Token::Semicolon]);
+        Token::Return, Token::Ident("x".to_string()), Token::Plus, Token::Ident("y".to_string()), Token::Is, Token::Number(11), Token::Semicolon, Token::EOP]);
     }
 }
