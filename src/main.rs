@@ -2,7 +2,8 @@ mod lambda;
 mod tokeniser;
 mod abstract_tree;
 mod parser;
+mod compiler;
 
 fn main() {
-    return;
+    lambda::lambda_calculus_interactive();
 }

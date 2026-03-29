@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo test:*)",
+      "Bash(taskkill //F //IM lambda_calc-e003f9435def1b94.exe)",
+      "Bash(RUST_MIN_STACK=8388608 cargo test add_scott_one_plus_two -- --nocapture 2>&1)",
+      "Bash(RUST_MIN_STACK=67108864 cargo test add_scott_one_plus_two -- --nocapture 2>&1)"
+    ]
+  }
+}

@@ -107,7 +107,7 @@ impl FromStr for Element {
 
     }
 
-struct ReductionSteps {
+pub struct ReductionSteps {
     current: Option<Element>,
 }
 
@@ -127,7 +127,7 @@ impl Iterator for ReductionSteps {
 }
 
 impl ReductionSteps {
-    fn new(elem: Element) -> Self {
+    pub fn new(elem: Element) -> Self {
         ReductionSteps { current: Some(elem) }
     }
 }
@@ -252,11 +252,11 @@ fn parse_single_element(s: &str) -> Result<Element, String> {
 
 
 
-fn var(s: &str) -> Element {
+pub fn var(s: &str) -> Element {
     Element::FreeVariable(s.to_string())
 }
 
-fn func(s1: &str, elem: Element) -> Element {
+pub fn func(s1: &str, elem: Element) -> Element {
     Element::Function(Function { bound_var: s1.to_string(), body: Box::new(elem) })
 }
 
@@ -265,7 +265,7 @@ fn identity() -> Element {
     func("x", var("x"))
 }
 
-fn apply(elem1: Element, elem2: Element) -> Element {
+pub fn apply(elem1: Element, elem2: Element) -> Element {
     Element::Application (Application { on: Box::new(elem1), from: Box::new(elem2) })
 }
 
@@ -281,30 +281,54 @@ fn reduce_expression(elem: Element) -> Result<(Element, bool), String> {
                 let Application { on, from } = app;
                 match reduce_expression(*on) {
                     Ok((a, true)) => return Ok((Element::Application(Application { on:Box::new(a), from }), true)),
-                    Ok((elem1, false)) => {
-                         match reduce_expression(*from) {
-                            Ok((a, b)) => return Ok(((apply(elem1, a)), b)),
-                            Err(e) => return Err(e),
-                         }
-                    },
+                    Ok((elem1, false)) => return Ok((apply(elem1, *from), false)),
                     Err(e) => return Err(e),
                 };
              }
         },
-        Element::Function(func) => {
-            match reduce_expression(*func.body) {
-                Ok((reduced_body, true)) => return Ok((Element::Function(Function { body: Box::new(reduced_body), ..func }), true)),
-                Ok((body, false)) => return Ok((Element::Function(Function { body:Box::new(body), ..func }), false)),
-                Err(e) => return Err(e),
-            }
-        },
+        Element::Function(_) => return Ok((elem, false)),
         Element::FreeVariable(_) => return Ok((elem, false)),
     }
 
-    
+
 }
 
-fn lambda_calculus_interactive() {
+fn normalise_step(elem: Element) -> (Element, bool) {
+    match elem {
+        Element::Application(app) => {
+            if let Element::Function(_f) = &*app.on {
+                (beta_reduce(app).unwrap(), true)
+            } else {
+                let Application { on, from } = app;
+                let (a, changed) = normalise_step(*on);
+                if changed {
+                    (apply(a, *from), true)
+                } else {
+                    let (b, changed2) = normalise_step(*from);
+                    (apply(a, b), changed2)
+                }
+            }
+        },
+        Element::Function(func) => {
+            let (reduced_body, changed) = normalise_step(*func.body);
+            (Element::Function(Function { body: Box::new(reduced_body), ..func }), changed)
+        },
+        Element::FreeVariable(_) => (elem, false),
+    }
+}
+
+pub fn normalise_output(elem: Element) -> Element {
+    let mut current = elem;
+    loop {
+        let (result, changed) = normalise_step(current);
+        if !changed {
+            return result;
+        }
+        current = result;
+    }
+}
+
+pub fn lambda_calculus_interactive() {
     let input = input("Enter a lambda function: ");
     let input_element = Element::from_str(&input).unwrap();
     let mut result = input_element.clone();
@@ -465,6 +489,7 @@ mod tests {
     fn apply_succ_to_one() {
         let succ_to_one = Element::from_str("(λn.λf.λx.(f ((n f) x)) λf.λx.(f x))").unwrap();
         let result = ReductionSteps::new(succ_to_one).last().unwrap();
+        let result = normalise_output(result);
         assert_eq!(result.to_string(), "λf.λx.(f (f x))");
     }
 
