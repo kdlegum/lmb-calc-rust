@@ -134,40 +134,98 @@ impl ReductionSteps {
 
 fn beta_reduce(app: Application) -> Result<Element, String> {
     let Application { on, from } = app;
-
-    let Element::Function(Function { bound_var, body }) = *on else {return Err("Not a function".to_string())};
-
-    let body_as_str = body.to_string();
-    let from_as_str = from.to_string();
-    let new_body = replace_excluding_bound_variables(&body_as_str, &from_as_str, &bound_var);
-    let new_body_elem = match Element::from_str(&new_body) {
-        Ok(a) => a,
-        Err(_) => return Err("Could not parse body".to_string()),
-    };
-    return Ok(new_body_elem);
-
+    let Element::Function(Function { bound_var, body }) = *on else { return Err("Not a function".to_string()) };
+    Ok(substitute(*body, &bound_var, &from))
 }
 
-fn replace_excluding_bound_variables(s: &str, to: &str, bound_var: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut remaining = s;
-
-    while let Some(idx) = remaining.find(bound_var) {
-        result.push_str(&remaining[..idx]);
-
-        let is_bound = result.ends_with('λ');
-
-        if is_bound {
-            result.push_str(bound_var);
-        } else {
-            result.push_str(to);
+/// Collect all free variables in an element.
+fn free_vars(elem: &Element) -> std::collections::HashSet<String> {
+    match elem {
+        Element::FreeVariable(v) => {
+            let mut s = std::collections::HashSet::new();
+            s.insert(v.clone());
+            s
         }
-
-        remaining = &remaining[idx + bound_var.len()..];
+        Element::Application(Application { on, from }) => {
+            let mut s = free_vars(on);
+            s.extend(free_vars(from));
+            s
+        }
+        Element::Function(Function { bound_var, body }) => {
+            let mut s = free_vars(body);
+            s.remove(bound_var);
+            s
+        }
     }
+}
 
-    result.push_str(remaining);
-    result
+/// All variable names (bound or free) appearing anywhere in the element.
+fn all_vars(elem: &Element) -> std::collections::HashSet<String> {
+    match elem {
+        Element::FreeVariable(v) => {
+            let mut s = std::collections::HashSet::new();
+            s.insert(v.clone());
+            s
+        }
+        Element::Application(Application { on, from }) => {
+            let mut s = all_vars(on);
+            s.extend(all_vars(from));
+            s
+        }
+        Element::Function(Function { bound_var, body }) => {
+            let mut s = all_vars(body);
+            s.insert(bound_var.clone());
+            s
+        }
+    }
+}
+
+/// Pick a fresh single-character variable name not in `avoid`.
+fn fresh_var(avoid: &std::collections::HashSet<String>) -> String {
+    for c in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".chars() {
+        let s = c.to_string();
+        if !avoid.contains(&s) {
+            return s;
+        }
+    }
+    panic!("Ran out of variable names");
+}
+
+/// Substitute all free occurrences of `var` in `body` with `replacement`,
+/// alpha-renaming binders in `body` as needed to avoid capture.
+fn substitute(body: Element, var: &str, replacement: &Element) -> Element {
+    match body {
+        Element::FreeVariable(ref v) => {
+            if v == var {
+                replacement.clone()
+            } else {
+                body
+            }
+        }
+        Element::Application(Application { on, from }) => {
+            apply(substitute(*on, var, replacement), substitute(*from, var, replacement))
+        }
+        Element::Function(Function { ref bound_var, .. }) => {
+            // If the binder is the same as var, var is shadowed — nothing to substitute.
+            if bound_var == var {
+                return body;
+            }
+            let Element::Function(Function { bound_var, body: inner }) = body else { unreachable!() };
+            let free_in_replacement = free_vars(replacement);
+            if free_in_replacement.contains(&bound_var) {
+                // Alpha-rename the binder to avoid capture.
+                let mut avoid = all_vars(&inner);
+                avoid.extend(all_vars(replacement));
+                avoid.insert(var.to_string());
+                let new_name = fresh_var(&avoid);
+                let renamed_inner = substitute(*inner, &bound_var, &Element::FreeVariable(new_name.clone()));
+                let substituted = substitute(renamed_inner, var, replacement);
+                func(&new_name, substituted)
+            } else {
+                func(&bound_var, substitute(*inner, var, replacement))
+            }
+        }
+    }
 }
 
 fn parse_single_element(s: &str) -> Result<Element, String> {
@@ -317,15 +375,34 @@ fn normalise_step(elem: Element) -> (Element, bool) {
     }
 }
 
-pub fn normalise_output(elem: Element) -> Element {
-    let mut current = elem;
-    loop {
-        let (result, changed) = normalise_step(current);
-        if !changed {
-            return result;
-        }
-        current = result;
+pub struct NormalisationSteps {
+    current: Option<Element>,
+}
+
+impl NormalisationSteps {
+    pub fn new(elem: Element) -> Self {
+        NormalisationSteps { current: Some(elem) }
     }
+}
+
+impl Iterator for NormalisationSteps {
+    type Item = Element;
+    fn next(&mut self) -> Option<Self::Item> {
+        let elem = self.current.take()?;
+        let (result, changed) = normalise_step(elem);
+        if changed {
+            let ret = result.clone();
+            self.current = Some(result);
+            Some(ret)
+        } else {
+            self.current = None;
+            Some(result)
+        }
+    }
+}
+
+pub fn normalise_output(elem: Element) -> Element {
+    NormalisationSteps::new(elem).last().unwrap()
 }
 
 pub fn lambda_calculus_interactive() {
